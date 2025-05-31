@@ -1,15 +1,11 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
 
-func reverse(s string) string {
-	r := make([]byte, len(s))
-	for i := range len(s) {
-		r[i] = s[len(s)-1-i]
-	}
-	return string(r)
-}
+	"golang.org/x/example/hello/reverse"
+)
 
 func main() {
-	fmt.Println(reverse("Hello, OTUS!"))
+	fmt.Println(reverse.String("Hello, OTUS!"))
 }
