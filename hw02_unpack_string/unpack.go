@@ -50,9 +50,11 @@ func processRune(cur rune, prev rune, escaped bool, builder *strings.Builder) (r
 	if unicode.IsDigit(prev) && !escaped && unicode.IsDigit(cur) {
 		return cur, false, ErrInvalidString
 	}
-	if prev == escapeR && (cur != escapeR && !unicode.IsDigit(cur)) {
-		return ignoreR, false, ErrInvalidString
+	// FIX
+	if prev == escapeR && !escaped && (cur != escapeR && !unicode.IsDigit(cur)) {
+		return cur, false, ErrInvalidString
 	}
+
 	if !escaped && unicode.IsDigit(prev) {
 		prev = ignoreR
 	}
