@@ -86,11 +86,17 @@ func (l *list) Remove(i *ListItem) {
 		l.lastNode = nil
 
 	case l.firstNode == i:
+		// Подумайте чему после этой операции будет равен l.firstNode.Prev
 		l.firstNode = i.Next
+		if l.firstNode != nil {
+			l.firstNode.Prev = nil
+		}
 
 	case l.lastNode == i:
 		l.lastNode = i.Prev
-		l.lastNode.Next = nil
+		if l.lastNode != nil {
+			l.lastNode.Next = nil
+		}
 
 	default:
 		i.Next.Prev = i.Prev
