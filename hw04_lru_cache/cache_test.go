@@ -50,30 +50,66 @@ func TestCache(t *testing.T) {
 	})
 
 	t.Run("purge logic", func(t *testing.T) {
-		// Write me
+		c := NewCache(2)
+
+		wasInCache := c.Set("aaa", 100)
+		require.False(t, wasInCache)
+
+		wasInCache = c.Set("bbb", 200)
+		require.False(t, wasInCache)
+
+		val, ok := c.Get("aaa")
+		require.True(t, ok)
+		require.Equal(t, 100, val)
+
+		wasInCache = c.Set("ccc", 300)
+		require.False(t, wasInCache)
+
+		val, ok = c.Get("bbb")
+		require.False(t, ok)
+		require.Nil(t, val)
+
+		val, ok = c.Get("aaa")
+		require.True(t, ok)
+		require.Equal(t, 100, val)
+
+		val, ok = c.Get("ccc")
+		require.True(t, ok)
+		require.Equal(t, 300, val)
 	})
 }
 
 func TestCacheMultithreading(t *testing.T) {
-	t.Skip() // Remove me if task with asterisk completed.
-
-	c := NewCache(10)
+	iterMax := 1_000_000
+	capacity := 10
+	c := NewCache(capacity)
 	wg := &sync.WaitGroup{}
 	wg.Add(2)
 
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 1_000_000; i++ {
+		for i := range iterMax {
 			c.Set(Key(strconv.Itoa(i)), i)
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 1_000_000; i++ {
-			c.Get(Key(strconv.Itoa(rand.Intn(1_000_000))))
+		for range iterMax {
+			c.Get(Key(strconv.Itoa(rand.Intn(iterMax))))
 		}
 	}()
 
 	wg.Wait()
+
+	for i := iterMax - capacity; i < iterMax; i++ {
+		val, ok := c.Get(Key(strconv.Itoa(i)))
+		require.True(t, ok)
+		require.Equal(t, i, val)
+	}
+
+	for i := 0; i < iterMax-capacity; i++ {
+		_, ok := c.Get(Key(strconv.Itoa(i)))
+		require.False(t, ok)
+	}
 }
