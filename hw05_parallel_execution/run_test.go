@@ -21,7 +21,7 @@ func TestRun(t *testing.T) {
 
 		var runTasksCount int32
 
-		for i := 0; i < tasksCount; i++ {
+		for i := range tasksCount {
 			err := fmt.Errorf("error from task %d", i)
 			tasks = append(tasks, func() error {
 				time.Sleep(time.Millisecond * time.Duration(rand.Intn(100)))
@@ -45,7 +45,7 @@ func TestRun(t *testing.T) {
 		var runTasksCount int32
 		var sumTime time.Duration
 
-		for i := 0; i < tasksCount; i++ {
+		for range tasksCount {
 			taskSleep := time.Millisecond * time.Duration(rand.Intn(100))
 			sumTime += taskSleep
 
@@ -66,5 +66,54 @@ func TestRun(t *testing.T) {
 
 		require.Equal(t, int32(tasksCount), runTasksCount, "not all tasks were completed")
 		require.LessOrEqual(t, int64(elapsedTime), int64(sumTime/2), "tasks were run sequentially?")
+	})
+}
+
+func TestRunSt(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	t.Run("tasks without errors without sleep with eventually", func(t *testing.T) {
+		tasksCount := 50
+		tasks := make([]Task, 0, tasksCount)
+
+		var runTasksCount int32
+		var sumTime time.Duration
+
+		for range tasksCount {
+			taskSleep := time.Millisecond*time.Duration(rand.Intn(100)) + 1
+			sumTime += taskSleep
+
+			tasks = append(tasks, func() error {
+				<-time.After(taskSleep)
+				atomic.AddInt32(&runTasksCount, 1)
+				return nil
+			})
+		}
+
+		workersCount := 5
+		maxErrorsCount := 1
+
+		runResult := func() chan error {
+			ch := make(chan error)
+			go func() {
+				defer close(ch)
+				ch <- nil
+				ch <- Run(tasks, workersCount, maxErrorsCount)
+			}()
+			<-ch
+			return ch
+		}()
+
+		var err error
+		require.Eventually(t, func() bool {
+			select {
+			case err = <-runResult:
+				return true
+			default:
+				return false
+			}
+		}, sumTime/2, 10, "tasks were run sequentially?")
+		require.NoError(t, err)
+		require.Equal(t, runTasksCount, int32(tasksCount), "not all tasks were completed")
 	})
 }
