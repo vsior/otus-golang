@@ -16,7 +16,7 @@ const (
 
 func TestPipeline(t *testing.T) {
 	// Stage generator
-	g := func(_ string, f func(v interface{}) interface{}) Stage {
+	g := func(_ string, f func(v any) any) Stage {
 		return func(in In) Out {
 			out := make(Bi)
 			go func() {
@@ -31,10 +31,10 @@ func TestPipeline(t *testing.T) {
 	}
 
 	stages := []Stage{
-		g("Dummy", func(v interface{}) interface{} { return v }),
-		g("Multiplier (* 2)", func(v interface{}) interface{} { return v.(int) * 2 }),
-		g("Adder (+ 100)", func(v interface{}) interface{} { return v.(int) + 100 }),
-		g("Stringifier", func(v interface{}) interface{} { return strconv.Itoa(v.(int)) }),
+		g("Dummy", func(v any) any { return v }),
+		g("Multiplier (* 2)", func(v any) any { return v.(int) * 2 }),
+		g("Adder (+ 100)", func(v any) any { return v.(int) + 100 }),
+		g("Stringifier", func(v any) any { return strconv.Itoa(v.(int)) }),
 	}
 
 	t.Run("simple case", func(t *testing.T) {
@@ -96,7 +96,7 @@ func TestPipeline(t *testing.T) {
 func TestAllStageStop(t *testing.T) {
 	wg := sync.WaitGroup{}
 	// Stage generator
-	g := func(_ string, f func(v interface{}) interface{}) Stage {
+	g := func(_ string, f func(v any) any) Stage {
 		return func(in In) Out {
 			out := make(Bi)
 			wg.Add(1)
@@ -113,10 +113,10 @@ func TestAllStageStop(t *testing.T) {
 	}
 
 	stages := []Stage{
-		g("Dummy", func(v interface{}) interface{} { return v }),
-		g("Multiplier (* 2)", func(v interface{}) interface{} { return v.(int) * 2 }),
-		g("Adder (+ 100)", func(v interface{}) interface{} { return v.(int) + 100 }),
-		g("Stringifier", func(v interface{}) interface{} { return strconv.Itoa(v.(int)) }),
+		g("Dummy", func(v any) any { return v }),
+		g("Multiplier (* 2)", func(v any) any { return v.(int) * 2 }),
+		g("Adder (+ 100)", func(v any) any { return v.(int) + 100 }),
+		g("Stringifier", func(v any) any { return strconv.Itoa(v.(int)) }),
 	}
 
 	t.Run("done case", func(t *testing.T) {
@@ -145,6 +145,160 @@ func TestAllStageStop(t *testing.T) {
 		wg.Wait()
 
 		require.Len(t, result, 0)
+	})
+}
 
+func TestPipelineClose(t *testing.T) {
+	t.Run("closed done without stages", func(t *testing.T) {
+		in := make(Bi)
+		done := make(Bi)
+		data := []int{1, 2, 3, 4, 5}
+		close(done)
+
+		go func() {
+			for _, v := range data {
+				in <- v
+			}
+			close(in)
+		}()
+
+		result := make([]int, 0, 10)
+		start := time.Now()
+		for s := range ExecutePipeline(in, done, []Stage{}...) {
+			result = append(result, s.(int))
+		}
+		elapsed := time.Since(start)
+
+		require.Len(t, result, 0)
+		require.Less(t, int64(elapsed), fault)
+	})
+
+	t.Run("closed done with stages", func(t *testing.T) {
+		in := make(Bi)
+		done := make(Bi)
+		data := []int{1, 2, 3, 4, 5}
+		close(done)
+
+		go func() {
+			for _, v := range data {
+				in <- v
+			}
+			close(in)
+		}()
+
+		result := make([]int, 0, 10)
+		start := time.Now()
+		for s := range ExecutePipeline(in, done, []Stage{func(in In) (out Out) { return in }}...) {
+			result = append(result, s.(int))
+		}
+		elapsed := time.Since(start)
+
+		require.Len(t, result, 0)
+		require.Less(t, int64(elapsed), fault)
+	})
+}
+
+func TestPipelineRegionCases(t *testing.T) {
+	t.Run("no stages", func(t *testing.T) {
+		in := make(Bi)
+		done := make(Bi)
+		data := []int{1, 2, 3, 4, 5}
+
+		abortDur := sleepPerStage * 2
+		go func() {
+			<-time.After(abortDur)
+			close(done)
+		}()
+
+		go func() {
+			for _, v := range data {
+				in <- v
+			}
+			close(in)
+		}()
+
+		result := make([]int, 0, 10)
+		start := time.Now()
+		for s := range ExecutePipeline(in, done, []Stage{}...) {
+			result = append(result, s.(int))
+		}
+		elapsed := time.Since(start)
+
+		require.Len(t, result, 5)
+		require.Less(t, int64(elapsed), int64(abortDur)+int64(fault))
+	})
+
+	t.Run("done with no stages", func(t *testing.T) {
+		in := make(Bi)
+		done := make(Bi)
+
+		abortDur := sleepPerStage * 2
+		go func() {
+			<-time.After(abortDur)
+			close(done)
+		}()
+
+		go func() {
+			defer close(in)
+			for {
+				select {
+				case in <- 1:
+				case <-done:
+					return
+				}
+			}
+		}()
+
+		start := time.Now()
+		for x := range ExecutePipeline(in, done, []Stage{}...) {
+			_ = x
+		}
+		elapsed := time.Since(start)
+
+		require.Less(t, int64(elapsed), int64(abortDur)+int64(fault))
+	})
+
+	t.Run("no data case", func(t *testing.T) {
+		in := make(Bi)
+		var data []int
+
+		go func() {
+			for _, v := range data {
+				in <- v
+			}
+			close(in)
+		}()
+
+		result := make([]string, 0, 10)
+		start := time.Now()
+		for s := range ExecutePipeline(in, nil, []Stage{}...) {
+			result = append(result, s.(string))
+		}
+		elapsed := time.Since(start)
+
+		require.Len(t, result, 0)
+		require.Less(t, int64(elapsed), fault)
+	})
+
+	t.Run("no stages no data", func(t *testing.T) {
+		in := make(Bi)
+		var data []int
+
+		go func() {
+			for _, v := range data {
+				in <- v
+			}
+			close(in)
+		}()
+
+		result := make([]int, 0, 10)
+		start := time.Now()
+		for s := range ExecutePipeline(in, nil, []Stage{}...) {
+			result = append(result, s.(int))
+		}
+		elapsed := time.Since(start)
+
+		require.Len(t, result, 0)
+		require.Less(t, int64(elapsed), fault)
 	})
 }
