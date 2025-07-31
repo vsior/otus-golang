@@ -56,7 +56,8 @@ func Copy(fromPath, toPath string, offset, limit int64) error {
 	defer toFile.Close()
 
 	progressChan := make(chan int64)
-	terminatedPb := progressBar{}.start(progressChan, copySize)
+	bar := progressBar{}
+	terminatedPb := bar.start(progressChan, copySize)
 	defer func() {
 		close(progressChan)
 		<-terminatedPb
